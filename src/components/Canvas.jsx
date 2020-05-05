@@ -1,42 +1,73 @@
 import React, { Component } from 'react';
-import Konva from 'konva'
-import { render } from 'react-dom';
-import { Stage, Layer, Rect, Text, Circle, Line } from 'react-konva';
+
+import { Stage, Layer, Line,Circle } from 'react-konva';
 import socketIOClient from "socket.io-client";
 import Toolbar from './Toolbar';
+import './Canvas.css';
 const penMode={
     FREE:"free",
     LINE:"line",
     GRAB:"grab",
-    ERASE:"erase"
+    ERASE:"erase",
+    TEXT:"text"
 }
-const socket = socketIOClient("http://localhost:5000");
-
-
-function getAll(){
-    var objs=[]
-    socket.on("new",(data) => {
-        objs.push(data)
-
-    })
-    return objs
-} 
-
+const socket = socketIOClient("http://192.168.0.19:5000/public"); //public is the room name
 
 
 class Canvas extends Component {
     state = {  
         zoom:100,
         drawMode: penMode.FREE,
-        drawingShape: {points:[],color:"#000000"},
-        lines: getAll(),
-        color: "#000000",
+        drawingShape: null,
+        lines: [],
+        penColor: "#000000",
+        penSize:1,
         cursor: {
-            x: null,
-            y: null
+            x: 0,
+            y: 0
         },
 
+        ready:false,
+        scale:1,
+
         isDrawing: false
+    }
+
+    componentDidMount(){
+        socket.on("objects",(list) => {
+            this.setState({lines:list});
+        })
+
+        socket.on("ready",() => {
+            this.setState({ready:true});
+        })
+
+        socket.on("update",(update) => { //Update existing line
+            for (var i=0; i < this.state.lines.length; i++) {
+                if(update["_id"]==this.state.lines[i]["_id"]){
+                    switch(this.state.lines[i]["type"]){
+                        case "free-line":
+                            this.state.lines[i]["points"]=this.state.lines[i]["points"].concat([update["x"],update["y"]]);
+                            break;
+                        case "straight-line":
+                            this.state.lines[i]["points"]=[this.state.lines[i]["points"][0],this.state.lines[i]["points"][1],update["x"],update["y"]];
+                            break;
+                    }
+                    this.forceUpdate();
+                    break;
+                }
+            }
+
+                
+                
+            
+            
+        })
+
+        socket.on("add",(obj) => { //Update existing line
+            console.log(obj)
+            this.setState({lines:this.state.lines.concat(obj)});
+        })
     }
 
 
@@ -45,43 +76,55 @@ class Canvas extends Component {
         var mousePosition=this.stageRef.getStage().getPointerPosition()
         var transform=stage.getAbsoluteTransform().copy()
         transform.invert()
-        return transform.point(mousePosition)
+        this.setState({cursor:transform.point(mousePosition)})
+
+        return this.state.cursor
+
     }
 
-    stage_onClick = e => {
-        console.log(this.state.lines)
-        var mousePosition=this.getMousePosition()
+    stage_onClick = () => {
+        const mousePosition=this.getMousePosition()
 
+        if(this.state.drawMode==penMode.GRAB){ 
+            this.stageRef.getStage().setDraggable(true) //Konva already allows canvas to be moved around: just set draggable to true
+            return
+        }
+        
+        
+        
         this.setState({isDrawing:true})
 
+
         switch(this.state.drawMode){
+            //For all: onclick set the current shape to a newly created one, then add it to the end of the objects lists (lines only for now)
             case penMode.FREE:
-                this.state.drawingShape={type:"free-line",globalCompositeOperation:'source-over',color:this.state.color,points:[mousePosition.x,mousePosition.y, mousePosition.x, mousePosition.y]}
-                this.setState({lines:this.state.lines.concat(this.state.drawingShape)});
+                this.state.drawingShape={strokeWidth:this.state.penSize, type:"free-line",globalCompositeOperation:'source-over',color:this.state.penColor,points:[mousePosition.x,mousePosition.y, mousePosition.x+1, mousePosition.y+1]} //+1 to create a dot
+                this.setState({lines:this.state.lines.concat(this.state.drawingShape)}); 
                 break;
             case penMode.LINE:
-                this.state.drawingShape={type:"straight-line",globalCompositeOperation:'source-over',color:this.state.color,points:[mousePosition.x,mousePosition.y,mousePosition.x,mousePosition.y]}
+                this.state.drawingShape={strokeWidth:this.state.penSize, type:"straight-line",globalCompositeOperation:'source-over',color:this.state.penColor,points:[mousePosition.x,mousePosition.y,mousePosition.x+1, mousePosition.y+1]}
                 this.setState({lines:this.state.lines.concat(this.state.drawingShape)});
                 break;
-            case penMode.GRAB:
-                this.stageRef.getStage().setDraggable(true)
-                break;
+
             case penMode.ERASE:
-                this.state.drawingShape={type: "free-line",globalCompositeOperation:"destination-out", color:this.state.color,points:[mousePosition.x,mousePosition.y, mousePosition.x, mousePosition.y]}
+                this.state.drawingShape={strokeWidth:this.state.penSize, type: "free-line",globalCompositeOperation:"destination-out", color:this.state.penColor,points:[mousePosition.x,mousePosition.y, mousePosition.x+1, mousePosition.y+1]}
                 this.setState({lines:this.state.lines.concat(this.state.drawingShape)});
                 break;
         }
         if(this.state.drawingShape){
             socket.emit("add",this.state.drawingShape)
-            socket.on("newid", (data) => {this.state.drawingShape["id"]=data})
+            socket.on("newid", (rcvdID) => {this.state.drawingShape["_id"]=rcvdID})
         }
     };
 
-    stage_onMove = e => {
+  
+    stage_onMove = () => {
+        const mousePosition=this.getMousePosition()
+        if(this.state.drawMode==penMode.GRAB){ //Moving canvas: already built into konva
+            return
+        }
         
         
-        var mousePosition=this.getMousePosition()
-
         if(this.state.isDrawing){
             var shape= this.state.drawingShape
             switch(this.state.drawMode){
@@ -92,60 +135,104 @@ class Canvas extends Component {
                     shape.points=shape.points.concat([mousePosition.x,mousePosition.y])
                     break;
                 case penMode.LINE:
-                    shape.points=[shape.points[0],shape.points[1],mousePosition.x,mousePosition.y]
+                    shape.points=[shape.points[0],shape.points[1],mousePosition.x,mousePosition.y] //Simply change last point [x1, y1, x2, y2]
                     break;
             }
             this.setState({drawingShape:shape})
             if(this.state.drawingShape){
-                const updateShape={id:this.state.drawingShape["id"],x:mousePosition.x,y:mousePosition.y}
+                const updateShape={_id:this.state.drawingShape["_id"],x:mousePosition.x,y:mousePosition.y} //Send update
                 socket.emit("update",updateShape)
             }
         }
         
     };
-    stage_onRelease= e => {
+    stage_onRelease= () => {
+        if(this.state.drawMode==penMode.GRAB){
+            this.stageRef.getStage().setDraggable(false)
+            return
+        }
         this.setState({isDrawing:false})
-        const stage=this.stageRef.getStage();
-        this.state.drawModedrawingShape = null
-        stage.setDraggable(false)
+
 
     };
     changeMode= (mode)=>{
         this.setState({drawMode:mode})
-        console.log(this.state.drawMode)
+    }
+    changeColor= (color)=>{
+        this.setState({ penColor: color.hex });
+    }
+
+    changeSize=(input)=>{
+        this.setState({penSize:input.target.value})
+    }
+
+    stage_zoom = (wheel)=>{
+        var deltaY = wheel.evt.deltaY;
+        const currentScale=this.state.scale
+        const scrollStep = Math.abs(deltaY/30);
+
+        // Scrolling up
+          if (deltaY < 0 && currentScale<5) {
+            this.setState({scale:Math.min(5,currentScale+scrollStep)}) //Increase scale, maximum of 5
+        // Scrolling down
+          } else if (deltaY > 0 && currentScale>0.5) {
+            this.setState({scale:Math.max(0.5,currentScale-scrollStep)}) //Decrease scale, minimum of 0.5
+            
+          }
+          
+        
+        
+
     }
 
 
-    render() { 
-        console.log(this.state.lines)
-        return (
+    render() {
+            return (
             
-        <React.Fragment>
-        <Toolbar onSelect={this.changeMode}/>
-        <Stage 
-            width={window.innerWidth} 
-            height={window.innerHeight*0.7}
-            ref={ref => {
-                this.stageRef = ref;
-              }}
-            onMouseDown = {this.stage_onClick}
-            onMouseMove = {this.stage_onMove}
-            onMouseUp = {this.stage_onRelease}
-            onMouseLeave = {this.stage_onRelease}
-            style = {{border: "solid", cursor:"crosshair"}}
-            >
-          <Layer>
-              {this.state.lines.map(function(line){
-                return <Line globalCompositeOperation={line.globalCompositeOperation} points={line.points} stroke={line.color} />
-              })
-              }
-              {this.state.pointer}
+                <React.Fragment>
+                <Toolbar
+                    currentSize={this.state.penSize} 
+                    changeSize={this.changeSize} 
+                    mode={this.state.drawMode} 
+                    onSelect={this.changeMode} 
+                    onColorChange={this.changeColor} 
+                    currentColor={this.state.penColor} 
+                    style = {{background:"blue"}}/>
+                <Stage 
+                    width={window.innerWidth} 
+                    height={window.innerHeight*0.9}
+                    scaleX={this.state.scale}
+                    scaleY={this.state.scale}
+                    ref={ref => {
+                        this.stageRef = ref;
+                      }}
+                    onWheel = {this.stage_zoom}
+                    onMouseDown = {this.stage_onClick}
+                    onMouseMove = {this.stage_onMove}
+                    onMouseUp = {this.stage_onRelease}
+                    onMouseLeave = {this.stage_onRelease}
+                    style = {{border: "solid", cursor:"none"}}
+                    >
+                  <Layer><Circle fill={this.state.penColor} stroke={this.state.penColor} radius={this.state.penSize/2} position={this.state.cursor} currentSize={this.state.penSize}/></Layer>
+                  <Layer
+                  >
+                      
+                      {
+                      this.state.lines.map(function(line){
+                        return <Line strokeWidth={line.strokeWidth} globalCompositeOperation={line.globalCompositeOperation} points={line.points} stroke={line.color} />
+                      })
+                      }
+                      {this.state.pointer}
+                      
 
 
-          </Layer>
-        </Stage>
-        </React.Fragment>
-        );
+                  </Layer>
+        
+                </Stage>
+                </React.Fragment>
+                );
+
+
     }
 }
  

@@ -1,0 +1,19 @@
+
+ul{
+    position:absolute;
+    list-style: none;
+    z-index: 1;
+}
+button{
+    height: 30px;
+    width:60px;
+}
+
+input{
+    width:60px;
+}
+
+#toolbar{
+    background: white;
+    border: "solid"
+}

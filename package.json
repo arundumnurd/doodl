@@ -10,6 +10,7 @@
     "express": "^4.17.1",
     "konva": "^4.2.2",
     "react": "^16.13.1",
+    "react-color": "^2.18.0",
     "react-dom": "^16.13.1",
     "react-konva": "^16.13.0-0",
     "react-scripts": "3.4.1",
