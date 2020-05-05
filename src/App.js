@@ -4,6 +4,9 @@ import Canvas from './components/Canvas'
 
 
 class App extends Component{
+  componentDidMount(){
+    document.title = "Doodl.io"
+  }
   render() {
     return (
       <div>

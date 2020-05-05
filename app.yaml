@@ -12,4 +12,10 @@
 # limitations under the License.# [START app_yaml]
 env: flex
 runtime: nodejs
+manual_scaling:
+  instances: 1
+resources:
+  cpu: .5
+  memory_gb: 0.5
+  disk_size_gb: 10
 # [END app_yaml]
