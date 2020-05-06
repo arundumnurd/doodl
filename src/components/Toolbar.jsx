@@ -25,7 +25,6 @@ class Toolbar extends Component {
 
 
     render() {
-        console.log(this.props.currentSize)
         
         const clickFunc=this.optionClick
         return (

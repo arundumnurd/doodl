@@ -16,24 +16,25 @@ const io = socketIO(server).of("public"); // Currently just have 1 public room f
 
 io.on("connection", socket => {
     canvas.load(room,function(err, objects) { //Send all objects on update
-        console.log(objects)
         if (err) throw err;
-        socket.emit("objects",objects)
+        objects.forEach(obj => {
+            socket.emit("object",obj)
+        });
         socket.emit("ready")
     })
 
+
+    
     socket.on("update",(update) =>{ //Send all updates to canvas interface
-        canvas.updatePoint(room,update["_id"],update["x"],update["y"])
+        const id=update["_id"]
+        const point=update["point"]
         socket.broadcast.emit("update",update)
     })
 
     socket.on("add",(object) =>{
         //Add new drawing object to database
         //Return a new id
-        canvas.add(room,object,function(err,id){
-            socket.emit("newid",id)
-            object["_id"]=id
-            console.log(object)
+        canvas.add(room,object,function(err,res){
             socket.broadcast.emit("add",object)
         })
         
@@ -41,6 +42,7 @@ io.on("connection", socket => {
         
         
     })
+    
 
 
 
